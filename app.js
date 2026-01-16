@@ -1,5 +1,6 @@
 // State Management
-let schedules = JSON.parse(localStorage.getItem('counselingSchedules')) || [];
+const API_URL = 'http://localhost:3000/api/schedules';
+let schedules = [];
 let currentYear = 2026;
 let currentMonth = 0; // January (0-indexed)
 let currentWeekStart = null;
@@ -21,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
-function initializeApp() {
+async function initializeApp() {
+    await loadSchedules();
     updateCounselors();
     updateCounselorFilter();
     renderCalendar();
@@ -272,11 +274,10 @@ function closeModal() {
     editingScheduleId = null;
 }
 
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
     e.preventDefault();
 
     const formData = {
-        id: editingScheduleId || Date.now().toString(),
         counselor: document.getElementById('counselor').value,
         date: document.getElementById('date').value,
         startTime: document.getElementById('startTime').value,
@@ -285,26 +286,71 @@ function handleFormSubmit(e) {
         sessionNumber: parseInt(document.getElementById('sessionNumber').value)
     };
 
-    if (editingScheduleId) {
-        // Update existing schedule
-        const index = schedules.findIndex(s => s.id === editingScheduleId);
-        if (index !== -1) {
-            schedules[index] = formData;
+    try {
+        if (editingScheduleId) {
+            // Update existing schedule
+            await updateSchedule(editingScheduleId, formData);
+        } else {
+            // Add new schedule
+            await addSchedule(formData);
         }
-    } else {
-        // Add new schedule
-        schedules.push(formData);
-    }
 
-    saveSchedules();
-    updateCounselors();
-    updateCounselorFilter();
-    renderScheduleGrid();
-    closeModal();
+        await loadSchedules();
+        updateCounselors();
+        updateCounselorFilter();
+        renderScheduleGrid();
+        closeModal();
+    } catch (error) {
+        console.error('Error saving schedule:', error);
+        alert('스케줄 저장에 실패했습니다. 다시 시도해주세요.');
+    }
 }
 
-function saveSchedules() {
-    localStorage.setItem('counselingSchedules', JSON.stringify(schedules));
+// API Helper Functions
+async function loadSchedules() {
+    try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error('Failed to load schedules');
+        schedules = await response.json();
+    } catch (error) {
+        console.error('Error loading schedules:', error);
+        schedules = [];
+    }
+}
+
+async function addSchedule(scheduleData) {
+    const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(scheduleData)
+    });
+
+    if (!response.ok) throw new Error('Failed to add schedule');
+    return await response.json();
+}
+
+async function updateSchedule(id, scheduleData) {
+    const response = await fetch(`${API_URL}/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(scheduleData)
+    });
+
+    if (!response.ok) throw new Error('Failed to update schedule');
+    return await response.json();
+}
+
+async function deleteSchedule(id) {
+    const response = await fetch(`${API_URL}/${id}`, {
+        method: 'DELETE'
+    });
+
+    if (!response.ok) throw new Error('Failed to delete schedule');
+    return await response.json();
 }
 
 function updateCounselors() {
@@ -347,7 +393,7 @@ function isSameDay(date1, date2) {
 }
 
 // Add delete functionality with right-click
-document.addEventListener('contextmenu', (e) => {
+document.addEventListener('contextmenu', async (e) => {
     const scheduleItem = e.target.closest('.schedule-item');
     if (scheduleItem) {
         e.preventDefault();
@@ -358,18 +404,23 @@ document.addEventListener('contextmenu', (e) => {
             const time = cell.dataset.time;
             const clientName = scheduleItem.querySelector('.schedule-item-client').textContent;
 
-            const index = schedules.findIndex(s =>
+            const schedule = schedules.find(s =>
                 s.date === date &&
                 s.startTime === time &&
                 s.clientName === clientName
             );
 
-            if (index !== -1) {
-                schedules.splice(index, 1);
-                saveSchedules();
-                updateCounselors();
-                updateCounselorFilter();
-                renderScheduleGrid();
+            if (schedule) {
+                try {
+                    await deleteSchedule(schedule.id);
+                    await loadSchedules();
+                    updateCounselors();
+                    updateCounselorFilter();
+                    renderScheduleGrid();
+                } catch (error) {
+                    console.error('Error deleting schedule:', error);
+                    alert('스케줄 삭제에 실패했습니다. 다시 시도해주세요.');
+                }
             }
         }
     }

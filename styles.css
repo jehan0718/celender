@@ -286,9 +286,14 @@ body {
     background: var(--bg-primary);
     padding: 8px;
     min-height: 60px;
+    max-height: 200px;
     position: relative;
     cursor: pointer;
     transition: var(--transition);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .schedule-cell:hover {
@@ -299,11 +304,11 @@ body {
     background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
     border-radius: var(--radius-sm);
     padding: 8px;
-    margin-bottom: 4px;
     cursor: pointer;
     transition: var(--transition);
     border-left: 3px solid var(--primary-hover);
     box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
 }
 
 .schedule-item:hover {
