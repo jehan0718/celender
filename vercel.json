@@ -1,11 +1,12 @@
 {
     "version": 2,
     "public": true,
-    "cleanUrls": true,
+    "name": "counseling-schedule",
     "rewrites": [
         {
             "source": "/(.*)",
             "destination": "/index.html"
         }
-    ]
+    ],
+    "cleanUrls": true
 }
