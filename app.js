@@ -330,17 +330,34 @@ async function handleFormSubmit(e) {
 // API Helper Functions
 async function loadSchedules() {
     try {
-        const response = await fetch(API_URL);
-        if (!response.ok) throw new Error('Failed to load schedules');
+        // 캐시 방지: 매번 새로운 요청으로 인식되도록 타임스탬프 추가
+        const timestamp = new Date().getTime();
+        const response = await fetch(`${API_URL}?t=${timestamp}`, {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('Failed to load schedules, status:', response.status);
+            throw new Error('Failed to load schedules');
+        }
+
         let data = await response.json();
+        console.log('📥 Loaded schedules from server:', data);
 
         // GAS에서 날짜가 ISO 텍스트로 올 수 있으므로 보정
         schedules = data.map(item => ({
             ...item,
             date: typeof item.date === 'string' && item.date.includes('T') ? item.date.split('T')[0] : item.date
         }));
+
+        console.log('✅ Processed schedules:', schedules);
     } catch (error) {
-        console.error('Error loading schedules:', error);
+        console.error('❌ Error loading schedules:', error);
     }
 }
 
