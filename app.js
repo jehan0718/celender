@@ -348,7 +348,6 @@ async function saveToGAS(scheduleData) {
     const response = await fetch(API_URL, {
         method: 'POST',
         mode: 'no-cors', // GAS 리다이렉션 처리를 위해 no-cors 사용
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(scheduleData)
     });
     return response;
@@ -358,7 +357,6 @@ async function deleteFromGAS(id) {
     const response = await fetch(API_URL, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', id: id })
     });
     return response;
