@@ -159,6 +159,41 @@ body {
     border-color: var(--border-light);
 }
 
+.btn-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-refresh:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    transform: scale(1.1);
+}
+
+.btn-refresh svg {
+    width: 20px;
+    height: 20px;
+    stroke: var(--text-primary);
+}
+
+.btn-refresh.loading svg {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* Calendar Navigation */
 .calendar-nav {
     display: flex;
