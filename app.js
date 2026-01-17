@@ -1,11 +1,12 @@
 // State Management
-const API_URL = 'http://localhost:3000/api/schedules';
+const API_URL = 'https://script.google.com/macros/s/AKfycbx-LKLLvnfD8QPS8rFKt-UdGA1-sf6HQ67FeUG9e0e-zWWTM8ZrV2Da5q2uXzvaG5IV/exec';
 let schedules = [];
 let currentYear = 2026;
 let currentMonth = 0; // January (0-indexed)
 let currentWeekStart = null;
 let editingScheduleId = null;
 let counselors = new Set();
+let isInitialLoad = true;
 
 // Time slots from 08:00 to 22:00
 const TIME_SLOTS = [
@@ -20,6 +21,12 @@ const MONTHS = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
     setupEventListeners();
+
+    // 10초마다 데이터 자동 새로고침 (실시간 동기화)
+    setInterval(async () => {
+        await loadSchedules();
+        renderScheduleGrid();
+    }, 10000);
 });
 
 async function initializeApp() {
@@ -29,6 +36,7 @@ async function initializeApp() {
     renderCalendar();
     renderWeekSelector();
     renderScheduleGrid();
+    isInitialLoad = false;
 }
 
 function setupEventListeners() {
@@ -74,7 +82,19 @@ function setupEventListeners() {
 
     // Filter
     document.getElementById('counselorFilter').addEventListener('change', renderScheduleGrid);
+
+    // Refresh Button
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('refreshBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="icon">⌛</span> 로딩 중...';
+        await initializeApp();
+        btn.disabled = false;
+        btn.innerHTML = '<span class="icon">🔄</span> 새로고침';
+    });
 }
+
+// ... (renderCalendar, renderWeekSelector remain same) ...
 
 function renderCalendar() {
     document.getElementById('currentMonth').textContent = `${currentYear}년 ${MONTHS[currentMonth]}`;
@@ -159,13 +179,11 @@ function renderScheduleGrid() {
 
     // Time slots and schedule cells
     TIME_SLOTS.forEach(time => {
-        // Time cell
         const timeCell = document.createElement('div');
         timeCell.className = 'time-cell';
         timeCell.textContent = time;
         grid.appendChild(timeCell);
 
-        // Schedule cells for each day
         for (let i = 0; i < 5; i++) {
             const date = new Date(currentWeekStart);
             date.setDate(date.getDate() + i);
@@ -175,14 +193,12 @@ function renderScheduleGrid() {
             cell.dataset.date = formatDate(date);
             cell.dataset.time = time;
 
-            // Add schedules to cell
             const cellSchedules = getSchedulesForCell(date, time);
             cellSchedules.forEach(schedule => {
                 const item = createScheduleItem(schedule);
                 cell.appendChild(item);
             });
 
-            // Click to add new schedule
             cell.addEventListener('click', (e) => {
                 if (e.target === cell) {
                     openModal(date, time);
@@ -199,7 +215,9 @@ function getSchedulesForCell(date, time) {
     const selectedCounselor = document.getElementById('counselorFilter').value;
 
     return schedules.filter(schedule => {
-        if (schedule.date !== dateStr) return false;
+        // GAS는 날짜 형식이 다를 수 있으므로 보정
+        const sDate = schedule.date instanceof Date ? formatDate(schedule.date) : schedule.date;
+        if (sDate !== dateStr) return false;
         if (schedule.startTime !== time) return false;
         if (selectedCounselor !== 'all' && schedule.counselor !== selectedCounselor) return false;
         return true;
@@ -210,7 +228,6 @@ function createScheduleItem(schedule) {
     const item = document.createElement('div');
     item.className = 'schedule-item';
 
-    // Assign color based on counselor
     const counselorIndex = Array.from(counselors).indexOf(schedule.counselor) % 7;
     item.dataset.counselorIndex = counselorIndex;
 
@@ -237,27 +254,22 @@ function openModal(date = null, time = null, schedule = null) {
     form.reset();
 
     if (schedule) {
-        // Edit mode
         title.textContent = '스케줄 수정';
         editingScheduleId = schedule.id;
 
         document.getElementById('counselor').value = schedule.counselor;
-        document.getElementById('date').value = schedule.date;
+        document.getElementById('date').value = schedule.date instanceof Date ? formatDate(schedule.date) : schedule.date;
         document.getElementById('startTime').value = schedule.startTime;
         document.getElementById('endTime').value = schedule.endTime;
         document.getElementById('clientName').value = schedule.clientName;
         document.getElementById('sessionNumber').value = schedule.sessionNumber;
     } else {
-        // Add mode
         title.textContent = '스케줄 추가';
         editingScheduleId = null;
 
-        if (date) {
-            document.getElementById('date').value = formatDate(date);
-        }
+        if (date) document.getElementById('date').value = formatDate(date);
         if (time) {
             document.getElementById('startTime').value = time;
-            // Set end time to next hour
             const timeIndex = TIME_SLOTS.indexOf(time);
             if (timeIndex < TIME_SLOTS.length - 1) {
                 document.getElementById('endTime').value = TIME_SLOTS[timeIndex + 1];
@@ -278,6 +290,7 @@ async function handleFormSubmit(e) {
     e.preventDefault();
 
     const formData = {
+        id: editingScheduleId || Date.now().toString(),
         counselor: document.getElementById('counselor').value,
         date: document.getElementById('date').value,
         startTime: document.getElementById('startTime').value,
@@ -287,22 +300,30 @@ async function handleFormSubmit(e) {
     };
 
     try {
+        // Optimistic UI Update: 서버 응답 전 화면 먼저 갱신
         if (editingScheduleId) {
-            // Update existing schedule
-            await updateSchedule(editingScheduleId, formData);
+            const idx = schedules.findIndex(s => s.id === editingScheduleId);
+            if (idx !== -1) schedules[idx] = formData;
         } else {
-            // Add new schedule
-            await addSchedule(formData);
+            schedules.push(formData);
         }
 
+        renderScheduleGrid();
+        closeModal();
+
+        // Background Sync with GAS
+        await saveToGAS(formData);
+
+        // Final sync to ensure data integrity
         await loadSchedules();
         updateCounselors();
         updateCounselorFilter();
         renderScheduleGrid();
-        closeModal();
     } catch (error) {
         console.error('Error saving schedule:', error);
-        alert('스케줄 저장에 실패했습니다. 다시 시도해주세요.');
+        alert('저장에 실패했습니다. 네트워크 상태를 확인해주세요.');
+        await loadSchedules(); // 에러 시 원래 데이터로 롤백
+        renderScheduleGrid();
     }
 }
 
@@ -311,46 +332,36 @@ async function loadSchedules() {
     try {
         const response = await fetch(API_URL);
         if (!response.ok) throw new Error('Failed to load schedules');
-        schedules = await response.json();
+        let data = await response.json();
+
+        // GAS에서 날짜가 ISO 텍스트로 올 수 있으므로 보정
+        schedules = data.map(item => ({
+            ...item,
+            date: typeof item.date === 'string' && item.date.includes('T') ? item.date.split('T')[0] : item.date
+        }));
     } catch (error) {
         console.error('Error loading schedules:', error);
-        schedules = [];
     }
 }
 
-async function addSchedule(scheduleData) {
+async function saveToGAS(scheduleData) {
     const response = await fetch(API_URL, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
+        mode: 'no-cors', // GAS 리다이렉션 처리를 위해 no-cors 사용
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(scheduleData)
     });
-
-    if (!response.ok) throw new Error('Failed to add schedule');
-    return await response.json();
+    return response;
 }
 
-async function updateSchedule(id, scheduleData) {
-    const response = await fetch(`${API_URL}/${id}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(scheduleData)
+async function deleteFromGAS(id) {
+    const response = await fetch(API_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: id })
     });
-
-    if (!response.ok) throw new Error('Failed to update schedule');
-    return await response.json();
-}
-
-async function deleteSchedule(id) {
-    const response = await fetch(`${API_URL}/${id}`, {
-        method: 'DELETE'
-    });
-
-    if (!response.ok) throw new Error('Failed to delete schedule');
-    return await response.json();
+    return response;
 }
 
 function updateCounselors() {
@@ -412,7 +423,12 @@ document.addEventListener('contextmenu', async (e) => {
 
             if (schedule) {
                 try {
-                    await deleteSchedule(schedule.id);
+                    await deleteFromGAS(schedule.id);
+                    // Optimistic UI for delete
+                    schedules = schedules.filter(s => s.id !== schedule.id);
+                    renderScheduleGrid();
+
+                    // Final sync
                     await loadSchedules();
                     updateCounselors();
                     updateCounselorFilter();
@@ -420,6 +436,8 @@ document.addEventListener('contextmenu', async (e) => {
                 } catch (error) {
                     console.error('Error deleting schedule:', error);
                     alert('스케줄 삭제에 실패했습니다. 다시 시도해주세요.');
+                    await loadSchedules();
+                    renderScheduleGrid();
                 }
             }
         }
