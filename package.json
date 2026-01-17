@@ -2,12 +2,14 @@
   "name": "counseling-schedule",
   "version": "1.0.0",
   "description": "Shared counseling schedule management system",
-  "main": "server.js",
   "scripts": {
-    "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": ["counseling", "schedule", "management"],
+  "keywords": [
+    "counseling",
+    "schedule",
+    "management"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
