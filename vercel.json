@@ -2,6 +2,15 @@
     "version": 2,
     "public": true,
     "name": "counseling-schedule",
+    "builds": [
+        {
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "."
+            }
+        }
+    ],
     "rewrites": [
         {
             "source": "/(.*)",
