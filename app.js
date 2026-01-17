@@ -380,9 +380,35 @@ async function loadSchedules() {
             return dateValue;
         }
 
+        // 시간 변환 함수 (1899-12-30T02:32:08.000Z -> "10:00")
+        function convertTime(timeValue) {
+            if (!timeValue) return '';
+
+            // 이미 HH:MM 형식이면 그대로 반환
+            if (typeof timeValue === 'string' && /^\d{2}:\d{2}$/.test(timeValue)) {
+                return timeValue;
+            }
+
+            // Date 객체 또는 ISO 문자열
+            try {
+                const date = new Date(timeValue);
+                if (!isNaN(date.getTime())) {
+                    const hours = String(date.getUTCHours()).padStart(2, '0');
+                    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            } catch (e) {
+                console.error('Time conversion error:', e);
+            }
+
+            return timeValue;
+        }
+
         schedules = data.map(item => ({
             ...item,
-            date: convertDate(item.date)
+            date: convertDate(item.date),
+            startTime: convertTime(item.startTime),
+            endTime: convertTime(item.endTime)
         }));
 
         console.log('✅ Processed schedules:', schedules);
