@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Shared counseling schedule management system",
   "scripts": {
-    "dev": "nodemon server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "counseling",
@@ -12,11 +12,5 @@
   ],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  }
+  "dependencies": {}
 }
