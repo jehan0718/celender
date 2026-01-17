@@ -1,65 +1,61 @@
 export default async function handler(req, res) {
-    // CORS 헤더 설정
+    // CORS 헤더
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // OPTIONS 요청 처리
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
     const GOOGLE_URL = process.env.GOOGLE_SCRIPT_URL;
 
+    // 환경 변수 확인
     if (!GOOGLE_URL) {
-        console.error('Environment variable GOOGLE_SCRIPT_URL is not set');
-        return res.status(500).json({ error: 'Server configuration error' });
+        console.error('❌ GOOGLE_SCRIPT_URL environment variable is missing');
+        return res.status(500).json({
+            error: 'Server configuration error',
+            message: 'GOOGLE_SCRIPT_URL not set'
+        });
     }
 
+    console.log('✅ Google URL found:', GOOGLE_URL.substring(0, 50) + '...');
+
     try {
-        let body = '';
-
-        if (req.method === 'POST') {
-            // req.body가 이미 파싱되어 있는 경우
-            if (req.body) {
-                body = JSON.stringify(req.body);
-            } else {
-                // 수동으로 body 읽기
-                body = JSON.stringify(await new Promise((resolve) => {
-                    let data = '';
-                    req.on('data', chunk => {
-                        data += chunk.toString();
-                    });
-                    req.on('end', () => {
-                        try {
-                            resolve(JSON.parse(data));
-                        } catch {
-                            resolve(data);
-                        }
-                    });
-                }));
-            }
-        }
-
         const options = {
             method: req.method,
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'text/plain;charset=utf-8',
             },
         };
 
-        if (req.method === 'POST' && body) {
-            options.body = body;
+        // POST 요청일 때만 body 추가
+        if (req.method === 'POST' && req.body) {
+            options.body = JSON.stringify(req.body);
+            console.log('📤 Sending to Google:', options.body);
         }
 
-        console.log('Forwarding request to Google Apps Script:', GOOGLE_URL);
+        console.log('🚀 Calling Google Apps Script...');
         const response = await fetch(GOOGLE_URL, options);
-        const data = await response.json();
 
-        console.log('Response from Google:', data);
-        res.status(200).json(data);
+        console.log('📥 Response status:', response.status);
+        const text = await response.text();
+        console.log('📥 Response text:', text.substring(0, 200));
+
+        try {
+            const data = JSON.parse(text);
+            return res.status(200).json(data);
+        } catch {
+            // JSON이 아니면 텍스트 그대로 반환
+            return res.status(200).send(text);
+        }
+
     } catch (error) {
-        console.error('Proxy Error:', error);
-        res.status(500).json({ error: 'Failed to fetch from Google', details: error.message });
+        console.error('❌ Proxy Error:', error.message);
+        console.error('Stack:', error.stack);
+        return res.status(500).json({
+            error: 'Failed to communicate with Google Sheets',
+            details: error.message
+        });
     }
 }
