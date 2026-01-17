@@ -2,19 +2,10 @@
     "version": 2,
     "public": true,
     "name": "counseling-schedule",
-    "builds": [
-        {
-            "src": "package.json",
-            "use": "@vercel/static-build",
-            "config": {
-                "distDir": "."
-            }
-        }
-    ],
     "rewrites": [
         {
-            "source": "/api/proxy",
-            "destination": "https://script.google.com/macros/s/AKfycbx-LKLLvnfD8QPS8rFKt-UdGA1-sf6HQ67FeUG9e0e-zWWTM8ZrV2Da5q2uXzvaG5IV/exec"
+            "source": "/api/(.*)",
+            "destination": "/api/$1"
         },
         {
             "source": "/(.*)",
