@@ -21,12 +21,7 @@ const MONTHS = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
     setupEventListeners();
-
-    // 10초마다 데이터 자동 새로고침 (실시간 동기화)
-    setInterval(async () => {
-        await loadSchedules();
-        renderScheduleGrid();
-    }, 10000);
+    // 주기적 새로고침 제거 - 필요할 때만 데이터 로드
 });
 
 async function initializeApp() {
@@ -72,9 +67,15 @@ function setupEventListeners() {
     document.getElementById('cancelBtn').addEventListener('click', closeModal);
 
     document.getElementById('scheduleModal').addEventListener('click', (e) => {
-        if (e.target.id === 'scheduleModal') {
+        // 모달 배경을 직접 클릭했을 때만 닫기 (modal-content 내부는 제외)
+        if (e.target === document.getElementById('scheduleModal')) {
             closeModal();
         }
+    });
+
+    // modal-content 내부 클릭 시 이벤트 전파 방지 (confirm 팝업 안정화)
+    document.querySelector('.modal-content').addEventListener('click', (e) => {
+        e.stopPropagation();
     });
 
     // Form
@@ -91,6 +92,34 @@ function setupEventListeners() {
         await initializeApp();
         btn.disabled = false;
         btn.innerHTML = '<span class="icon">🔄</span> 새로고침';
+    });
+
+    // Delete Button (in modal)
+    document.getElementById('deleteBtn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        // 삭제할 ID를 미리 저장
+        const scheduleIdToDelete = editingScheduleId;
+
+        const confirmed = await showConfirm('이 스케줄을 삭제하시겠습니까?');
+        if (confirmed) {
+            // 확인 즉시 모든 모달 닫기
+            closeModal();
+            // 즉시 삭제 실행 (await 없이)
+            handleDeleteById(scheduleIdToDelete);
+        }
+    });
+
+    // Custom Confirm Modal Event Listeners
+    document.getElementById('confirmModal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('confirmModal')) {
+            closeConfirmModal(false);
+        }
+    });
+
+    document.querySelector('#confirmModal .modal-content').addEventListener('click', (e) => {
+        e.stopPropagation();
     });
 }
 
@@ -250,12 +279,14 @@ function openModal(date = null, time = null, schedule = null) {
     const modal = document.getElementById('scheduleModal');
     const form = document.getElementById('scheduleForm');
     const title = document.getElementById('modalTitle');
+    const deleteBtn = document.getElementById('deleteBtn');
 
     form.reset();
 
     if (schedule) {
-        title.textContent = '스케줄 수정';
+        title.textContent = '스케줄 상세 정보';
         editingScheduleId = schedule.id;
+        deleteBtn.style.display = 'flex'; // 삭제 버튼 표시
 
         document.getElementById('counselor').value = schedule.counselor;
         document.getElementById('date').value = schedule.date instanceof Date ? formatDate(schedule.date) : schedule.date;
@@ -266,6 +297,7 @@ function openModal(date = null, time = null, schedule = null) {
     } else {
         title.textContent = '스케줄 추가';
         editingScheduleId = null;
+        deleteBtn.style.display = 'none'; // 삭제 버튼 숨김
 
         if (date) document.getElementById('date').value = formatDate(date);
         if (time) {
@@ -398,7 +430,7 @@ async function loadSchedules() {
                     // 1899-12-30T01:32:08.000Z -> 01:32 -> 10:00 (한국 시간대 +9시간)
                     let hours = date.getUTCHours();
                     let minutes = date.getUTCMinutes();
-                    
+
                     // 1899-12-30으로 시작하는 경우 (시간만 저장된 경우)
                     // UTC 시간을 그대로 사용 (구글 스프레드시트가 UTC로 저장)
                     if (timeValue.includes('1899-12-30')) {
@@ -407,7 +439,7 @@ async function loadSchedules() {
                         // 한국 시간대(KST)는 UTC+9이므로, UTC 시간에 9를 더해야 함
                         hours = (hours + 9) % 24;
                     }
-                    
+
                     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
                 }
             } catch (e) {
@@ -487,43 +519,74 @@ function isSameDay(date1, date2) {
         date1.getDate() === date2.getDate();
 }
 
-// Add delete functionality with right-click
-document.addEventListener('contextmenu', async (e) => {
-    const scheduleItem = e.target.closest('.schedule-item');
-    if (scheduleItem) {
-        e.preventDefault();
+// Delete handler function
+async function handleDeleteById(scheduleId) {
+    console.log('🗑️ handleDeleteById called with ID:', scheduleId);
 
-        if (confirm('이 스케줄을 삭제하시겠습니까?')) {
-            const cell = scheduleItem.parentElement;
-            const date = cell.dataset.date;
-            const time = cell.dataset.time;
-            const clientName = scheduleItem.querySelector('.schedule-item-client').textContent;
-
-            const schedule = schedules.find(s =>
-                s.date === date &&
-                s.startTime === time &&
-                s.clientName === clientName
-            );
-
-            if (schedule) {
-                try {
-                    await deleteFromGAS(schedule.id);
-                    // Optimistic UI for delete
-                    schedules = schedules.filter(s => s.id !== schedule.id);
-                    renderScheduleGrid();
-
-                    // Final sync
-                    await loadSchedules();
-                    updateCounselors();
-                    updateCounselorFilter();
-                    renderScheduleGrid();
-                } catch (error) {
-                    console.error('Error deleting schedule:', error);
-                    alert('스케줄 삭제에 실패했습니다. 다시 시도해주세요.');
-                    await loadSchedules();
-                    renderScheduleGrid();
-                }
-            }
-        }
+    if (!scheduleId) {
+        console.error('❌ No schedule ID provided');
+        return;
     }
-});
+
+    // 백업 (롤백용)
+    const originalSchedules = [...schedules];
+
+    try {
+        // Optimistic UI: 즉시 UI에서 제거 (API 호출 전)
+        schedules = schedules.filter(s => s.id !== scheduleId);
+        updateCounselors();
+        updateCounselorFilter();
+        renderScheduleGrid();
+
+        console.log('📤 Calling deleteFromGAS with ID:', scheduleId);
+        const response = await deleteFromGAS(scheduleId);
+        console.log('✅ Delete response:', response);
+        console.log('✅ Delete completed successfully');
+    } catch (error) {
+        console.error('❌ Error deleting schedule:', error);
+        // 실패 시 롤백
+        schedules = originalSchedules;
+        updateCounselors();
+        updateCounselorFilter();
+        renderScheduleGrid();
+        alert('스케줄 삭제에 실패했습니다. 다시 시도해주세요.');
+    }
+}
+
+// Custom Confirm Modal Functions
+let confirmResolve = null;
+
+function showConfirm(message) {
+    return new Promise((resolve) => {
+        confirmResolve = resolve;
+
+        const modal = document.getElementById('confirmModal');
+        const messageEl = document.getElementById('confirmMessage');
+
+        messageEl.textContent = message;
+        modal.classList.add('active');
+
+        // 버튼 이벤트 리스너 설정 (기존 리스너 제거 후 추가)
+        const okBtn = document.getElementById('confirmOkBtn');
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+
+        const newOkBtn = okBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+        newOkBtn.addEventListener('click', () => closeConfirmModal(true));
+        newCancelBtn.addEventListener('click', () => closeConfirmModal(false));
+    });
+}
+
+function closeConfirmModal(result) {
+    const modal = document.getElementById('confirmModal');
+    modal.classList.remove('active');
+
+    if (confirmResolve) {
+        confirmResolve(result);
+        confirmResolve = null;
+    }
+}
