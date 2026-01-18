@@ -6,7 +6,18 @@ let currentMonth = 0; // January (0-indexed)
 let currentWeekStart = null;
 let editingScheduleId = null;
 let counselors = new Set();
+let clients = new Set();
+let months = new Set();
 let isInitialLoad = true;
+
+// View and Filter State
+let currentView = 'calendar'; // 'calendar' or 'list'
+let searchQuery = '';
+let activeFilters = {
+    counselor: 'all',
+    client: 'all',
+    month: 'all'
+};
 
 // Time slots from 08:00 to 22:00
 const TIME_SLOTS = [
@@ -26,12 +37,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function initializeApp() {
     await loadSchedules();
+
+    // Smart initial date: Navigate to most recent schedule on first load
+    if (isInitialLoad && schedules.length > 0) {
+        const mostRecentDate = findMostRecentScheduleDate();
+        if (mostRecentDate) {
+            currentYear = mostRecentDate.getFullYear();
+            currentMonth = mostRecentDate.getMonth();
+            currentWeekStart = getWeekStart(mostRecentDate);
+        }
+    }
+
     updateCounselors();
+    updateClients();
+    updateMonths();
     updateCounselorFilter();
+    updateClientFilter();
+    updateMonthFilter();
     renderCalendar();
     renderWeekSelector();
-    renderScheduleGrid();
+    renderCurrentView();
     isInitialLoad = false;
+}
+
+function findMostRecentScheduleDate() {
+    if (schedules.length === 0) return null;
+
+    // Find the most recent date among all schedules
+    let mostRecent = null;
+    schedules.forEach(schedule => {
+        const scheduleDate = new Date(schedule.date);
+        if (!mostRecent || scheduleDate > mostRecent) {
+            mostRecent = scheduleDate;
+        }
+    });
+
+    return mostRecent;
+}
+
+function getWeekStart(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
+    return new Date(d.setDate(diff));
 }
 
 function setupEventListeners() {
@@ -44,7 +92,7 @@ function setupEventListeners() {
         }
         renderCalendar();
         renderWeekSelector();
-        renderScheduleGrid();
+        renderCurrentView();
     });
 
     document.getElementById('nextMonth').addEventListener('click', () => {
@@ -55,7 +103,51 @@ function setupEventListeners() {
         }
         renderCalendar();
         renderWeekSelector();
-        renderScheduleGrid();
+        renderCurrentView();
+    });
+
+    // View Toggle
+    document.getElementById('calendarViewBtn').addEventListener('click', () => {
+        switchView('calendar');
+    });
+
+    document.getElementById('listViewBtn').addEventListener('click', () => {
+        switchView('list');
+    });
+
+    // Search
+    document.getElementById('searchBtn').addEventListener('click', () => {
+        performSearch();
+    });
+
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+
+    document.getElementById('clearSearchBtn').addEventListener('click', () => {
+        clearSearch();
+    });
+
+    // Filters
+    document.getElementById('counselorFilter').addEventListener('change', (e) => {
+        activeFilters.counselor = e.target.value;
+        applyFilters();
+    });
+
+    document.getElementById('clientFilter').addEventListener('change', (e) => {
+        activeFilters.client = e.target.value;
+        applyFilters();
+    });
+
+    document.getElementById('monthFilter').addEventListener('change', (e) => {
+        activeFilters.month = e.target.value;
+        applyFilters();
+    });
+
+    document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+        resetFilters();
     });
 
     // Modal
@@ -80,9 +172,6 @@ function setupEventListeners() {
 
     // Form
     document.getElementById('scheduleForm').addEventListener('submit', handleFormSubmit);
-
-    // Filter
-    document.getElementById('counselorFilter').addEventListener('change', renderScheduleGrid);
 
     // Refresh Button
     document.getElementById('refreshBtn').addEventListener('click', async () => {
@@ -120,6 +209,19 @@ function setupEventListeners() {
 
     document.querySelector('#confirmModal .modal-content').addEventListener('click', (e) => {
         e.stopPropagation();
+    });
+
+    // Termination Checkbox Handler
+    document.getElementById('isTermination').addEventListener('change', (e) => {
+        const sessionInput = document.getElementById('sessionNumber');
+        if (e.target.checked) {
+            sessionInput.value = '종료';
+            sessionInput.disabled = true;
+        } else {
+            sessionInput.value = '';
+            sessionInput.disabled = false;
+            sessionInput.focus();
+        }
     });
 }
 
@@ -183,6 +285,216 @@ function renderWeekSelector() {
 
         weekSelector.appendChild(btn);
     });
+}
+
+// View Switching Functions
+function switchView(viewType) {
+    currentView = viewType;
+
+    // Update button states
+    document.getElementById('calendarViewBtn').classList.toggle('active', viewType === 'calendar');
+    document.getElementById('listViewBtn').classList.toggle('active', viewType === 'list');
+
+    // Show/hide containers
+    document.getElementById('calendarViewContainer').style.display = viewType === 'calendar' ? 'block' : 'none';
+    document.getElementById('weekSelector').style.display = viewType === 'calendar' ? 'flex' : 'none';
+    document.getElementById('listViewContainer').style.display = viewType === 'list' ? 'block' : 'none';
+
+    renderCurrentView();
+}
+
+function renderCurrentView() {
+    if (currentView === 'calendar') {
+        renderScheduleGrid();
+    } else {
+        renderListView();
+    }
+}
+
+// Search Functions
+function performSearch() {
+    const input = document.getElementById('searchInput');
+    searchQuery = input.value.toLowerCase().trim();
+
+    if (searchQuery) {
+        document.getElementById('clearSearchBtn').style.display = 'flex';
+        switchView('list');
+        renderListView();
+    }
+}
+
+function clearSearch() {
+    searchQuery = '';
+    document.getElementById('searchInput').value = '';
+    document.getElementById('clearSearchBtn').style.display = 'none';
+    renderCurrentView();
+}
+
+// Filter Functions
+function applyFilters() {
+    // Show reset button if any filter is active
+    const hasActiveFilter = activeFilters.counselor !== 'all' ||
+        activeFilters.client !== 'all' ||
+        activeFilters.month !== 'all';
+
+    document.getElementById('resetFiltersBtn').style.display = hasActiveFilter ? 'inline-flex' : 'none';
+
+    // Switch to list view when filters are active
+    if (hasActiveFilter) {
+        switchView('list');
+    } else {
+        renderCurrentView();
+    }
+}
+
+function resetFilters() {
+    activeFilters = {
+        counselor: 'all',
+        client: 'all',
+        month: 'all'
+    };
+
+    document.getElementById('counselorFilter').value = 'all';
+    document.getElementById('clientFilter').value = 'all';
+    document.getElementById('monthFilter').value = 'all';
+    document.getElementById('resetFiltersBtn').style.display = 'none';
+
+    renderCurrentView();
+}
+
+function getFilteredSchedules() {
+    let filtered = [...schedules];
+
+    // Apply search filter
+    if (searchQuery) {
+        filtered = filtered.filter(schedule => {
+            const dateMatch = schedule.date.includes(searchQuery);
+            const counselorMatch = schedule.counselor.toLowerCase().includes(searchQuery);
+            const clientMatch = schedule.clientName.toLowerCase().includes(searchQuery);
+            return dateMatch || counselorMatch || clientMatch;
+        });
+    }
+
+    // Apply counselor filter
+    if (activeFilters.counselor !== 'all') {
+        filtered = filtered.filter(s => s.counselor === activeFilters.counselor);
+    }
+
+    // Apply client filter
+    if (activeFilters.client !== 'all') {
+        filtered = filtered.filter(s => s.clientName === activeFilters.client);
+    }
+
+    // Apply month filter
+    if (activeFilters.month !== 'all') {
+        filtered = filtered.filter(s => s.date.startsWith(activeFilters.month));
+    }
+
+    return filtered;
+}
+
+// List View Rendering
+function renderListView() {
+    const container = document.getElementById('listViewContent');
+    container.innerHTML = '';
+
+    const filtered = getFilteredSchedules();
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <p>검색 결과가 없습니다</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Sort by date and time
+    const sorted = filtered.sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date);
+        if (dateCompare !== 0) return dateCompare;
+        return b.startTime.localeCompare(a.startTime);
+    });
+
+    // Group by date
+    const grouped = {};
+    sorted.forEach(schedule => {
+        if (!grouped[schedule.date]) {
+            grouped[schedule.date] = [];
+        }
+        grouped[schedule.date].push(schedule);
+    });
+
+    // Render grouped schedules
+    Object.keys(grouped).sort().reverse().forEach(date => {
+        const dateSection = document.createElement('div');
+        dateSection.className = 'list-date-section';
+
+        const dateHeader = document.createElement('div');
+        dateHeader.className = 'list-date-header';
+        const dateObj = new Date(date);
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        dateHeader.textContent = `${date} (${dayNames[dateObj.getDay()]})`;
+        dateSection.appendChild(dateHeader);
+
+        const itemsContainer = document.createElement('div');
+        itemsContainer.className = 'list-items-container';
+
+        grouped[date].forEach(schedule => {
+            const item = createListItem(schedule);
+            itemsContainer.appendChild(item);
+        });
+
+        dateSection.appendChild(itemsContainer);
+        container.appendChild(dateSection);
+    });
+}
+
+function createListItem(schedule) {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+
+    const counselorIndex = Array.from(counselors).indexOf(schedule.counselor) % 7;
+    item.dataset.counselorIndex = counselorIndex;
+
+    const sessionDisplay = schedule.sessionNumber === '종료' ?
+        '<span class="termination-badge">종료</span>' :
+        `${schedule.sessionNumber}회기`;
+
+    item.innerHTML = `
+        <div class="list-item-time">
+            <span class="time-badge">${schedule.startTime} - ${schedule.endTime}</span>
+        </div>
+        <div class="list-item-details">
+            <div class="list-item-client">${schedule.clientName}</div>
+            <div class="list-item-meta">
+                <span class="meta-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    ${schedule.counselor}
+                </span>
+                <span class="meta-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                    </svg>
+                    ${sessionDisplay}
+                </span>
+            </div>
+        </div>
+    `;
+
+    item.addEventListener('click', () => {
+        openModal(null, null, schedule);
+    });
+
+    return item;
 }
 
 function renderScheduleGrid() {
@@ -260,10 +572,14 @@ function createScheduleItem(schedule) {
     const counselorIndex = Array.from(counselors).indexOf(schedule.counselor) % 7;
     item.dataset.counselorIndex = counselorIndex;
 
+    const sessionDisplay = schedule.sessionNumber === '종료' ?
+        '<span class="termination-badge">종료</span>' :
+        `${schedule.sessionNumber}회기`;
+
     item.innerHTML = `
         <div class="schedule-item-client">${schedule.clientName}</div>
         <div class="schedule-item-time">${schedule.startTime} - ${schedule.endTime}</div>
-        <div class="schedule-item-session">${schedule.sessionNumber}회기</div>
+        <div class="schedule-item-session">${sessionDisplay}</div>
         <div class="schedule-item-counselor">${schedule.counselor}</div>
     `;
 
@@ -280,8 +596,12 @@ function openModal(date = null, time = null, schedule = null) {
     const form = document.getElementById('scheduleForm');
     const title = document.getElementById('modalTitle');
     const deleteBtn = document.getElementById('deleteBtn');
+    const sessionInput = document.getElementById('sessionNumber');
+    const terminationCheckbox = document.getElementById('isTermination');
 
     form.reset();
+    sessionInput.disabled = false;
+    terminationCheckbox.checked = false;
 
     if (schedule) {
         title.textContent = '스케줄 상세 정보';
@@ -293,7 +613,15 @@ function openModal(date = null, time = null, schedule = null) {
         document.getElementById('startTime').value = schedule.startTime;
         document.getElementById('endTime').value = schedule.endTime;
         document.getElementById('clientName').value = schedule.clientName;
-        document.getElementById('sessionNumber').value = schedule.sessionNumber;
+
+        // Handle termination status
+        if (schedule.sessionNumber === '종료' || schedule.sessionNumber === 0) {
+            terminationCheckbox.checked = true;
+            sessionInput.value = '종료';
+            sessionInput.disabled = true;
+        } else {
+            sessionInput.value = schedule.sessionNumber;
+        }
     } else {
         title.textContent = '스케줄 추가';
         editingScheduleId = null;
@@ -321,6 +649,9 @@ function closeModal() {
 async function handleFormSubmit(e) {
     e.preventDefault();
 
+    const isTermination = document.getElementById('isTermination').checked;
+    const sessionValue = document.getElementById('sessionNumber').value;
+
     const formData = {
         id: editingScheduleId || Date.now().toString(),
         counselor: document.getElementById('counselor').value,
@@ -328,7 +659,7 @@ async function handleFormSubmit(e) {
         startTime: document.getElementById('startTime').value,
         endTime: document.getElementById('endTime').value,
         clientName: document.getElementById('clientName').value,
-        sessionNumber: parseInt(document.getElementById('sessionNumber').value)
+        sessionNumber: isTermination ? '종료' : (sessionValue === '종료' ? '종료' : parseInt(sessionValue) || 1)
     };
 
     try {
@@ -502,6 +833,60 @@ function updateCounselorFilter() {
 
     // Restore previous selection if it still exists
     if (currentValue !== 'all' && counselors.has(currentValue)) {
+        filter.value = currentValue;
+    }
+}
+
+function updateClients() {
+    clients.clear();
+    schedules.forEach(schedule => {
+        clients.add(schedule.clientName);
+    });
+}
+
+function updateClientFilter() {
+    const filter = document.getElementById('clientFilter');
+    const currentValue = filter.value;
+
+    filter.innerHTML = '<option value="all">전체 내담자</option>';
+
+    Array.from(clients).sort().forEach(client => {
+        const option = document.createElement('option');
+        option.value = client;
+        option.textContent = client;
+        filter.appendChild(option);
+    });
+
+    // Restore previous selection if it still exists
+    if (currentValue !== 'all' && clients.has(currentValue)) {
+        filter.value = currentValue;
+    }
+}
+
+function updateMonths() {
+    months.clear();
+    schedules.forEach(schedule => {
+        const yearMonth = schedule.date.substring(0, 7); // YYYY-MM
+        months.add(yearMonth);
+    });
+}
+
+function updateMonthFilter() {
+    const filter = document.getElementById('monthFilter');
+    const currentValue = filter.value;
+
+    filter.innerHTML = '<option value="all">전체 월</option>';
+
+    Array.from(months).sort().reverse().forEach(month => {
+        const option = document.createElement('option');
+        option.value = month;
+        const [year, monthNum] = month.split('-');
+        option.textContent = `${year}년 ${parseInt(monthNum)}월`;
+        filter.appendChild(option);
+    });
+
+    // Restore previous selection if it still exists
+    if (currentValue !== 'all' && months.has(currentValue)) {
         filter.value = currentValue;
     }
 }
