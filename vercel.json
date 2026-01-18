@@ -1,0 +1,18 @@
+{
+    "version": 2,
+    "public": true,
+    "name": "counseling-schedule",
+    "buildCommand": "",
+    "outputDirectory": ".",
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/$1"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ],
+    "cleanUrls": true
+}
