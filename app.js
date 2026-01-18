@@ -598,13 +598,15 @@ function openModal(date = null, time = null, schedule = null) {
     const deleteBtn = document.getElementById('deleteBtn');
     const sessionInput = document.getElementById('sessionNumber');
     const terminationCheckbox = document.getElementById('isTermination');
+    const submitBtn = document.getElementById('submitBtn');
 
     form.reset();
     sessionInput.disabled = false;
     terminationCheckbox.checked = false;
 
     if (schedule) {
-        title.textContent = '스케줄 상세 정보';
+        title.textContent = '스케줄 수정';
+        submitBtn.textContent = '수정';
         editingScheduleId = schedule.id;
         deleteBtn.style.display = 'flex'; // 삭제 버튼 표시
 
@@ -624,6 +626,7 @@ function openModal(date = null, time = null, schedule = null) {
         }
     } else {
         title.textContent = '스케줄 추가';
+        submitBtn.textContent = '저장';
         editingScheduleId = null;
         deleteBtn.style.display = 'none'; // 삭제 버튼 숨김
 
